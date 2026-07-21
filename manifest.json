@@ -1,0 +1,8 @@
+{
+    "display_name": "Family Tree",
+    "name": "st-family-tree",
+    "version": "1.0.0",
+    "description": "Визуальное семейное древо для активного чата. Позволяет добавлять персонажей и связи.",
+    "author": "YourName",
+    "main": "index.js"
+}
