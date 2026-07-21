@@ -14,8 +14,25 @@ async function loadHtml() {
 
 async function init() {
     await loadHtml();
-    const treeIconHtml = `<div id="ft_top_menu_btn" class="menu_button fas fa-tree" title="Семейное древо"></div>`;
-    $('#rm_button_group_chats').append(treeIconHtml);
+const treeIconHtml = `
+    <div id="ft_top_menu_btn" class="menu_button" title="Семейное древо" style="display: flex; align-items: center; justify-content: center;">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <!-- Квадрат сверху -->
+            <rect x="9" y="3" width="6" height="4" rx="1"></rect>
+            <!-- Линия вниз -->
+            <path d="M12 7v4"></path>
+            <!-- Горизонтальная линия -->
+            <path d="M6 11h12"></path>
+            <!-- Линии к нижним квадратам -->
+            <path d="M6 11v4"></path>
+            <path d="M18 11v4"></path>
+            <!-- Нижние квадраты -->
+            <rect x="3" y="15" width="6" height="4" rx="1"></rect>
+            <rect x="15" y="15" width="6" height="4" rx="1"></rect>
+        </svg>
+    </div>
+`;
+$('#rm_button_group_chats').append(treeIconHtml);
 
     $('#ft_top_menu_btn').on('click', openFamilyTree);
     $('#ft_close').on('click', () => $.magnificPopup.close());
