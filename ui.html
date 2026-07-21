@@ -10,29 +10,46 @@
     <div id="family_tree_workspace" class="family-tree-workspace">
         <!-- SVG слой для линий связи -->
         <svg id="ft_lines_layer" class="ft-svg-layer"></svg>
-        <!-- Карточки будут добавляться сюда скриптом -->
+        
+        <!-- Всплывающая панель управления связями (скрыта по умолчанию) -->
+        <div id="ft_connection_panel" class="ft-panel" style="display: none;">
+            <h4>Связи: <span id="ft_cp_name"></span></h4>
+            
+            <div class="ft-cp-form">
+                <select id="ft_cp_target" class="ft-select"></select>
+                <select id="ft_cp_type" class="ft-select">
+                    <option value="solid">Кровное родство (Сплошная)</option>
+                    <option value="dashed">Брак / Приемные (Пунктир)</option>
+                </select>
+                <button id="ft_cp_add" class="menu_button">Связать</button>
+            </div>
+
+            <ul id="ft_cp_list" class="ft-conn-list"></ul>
+            
+            <div style="text-align: right; margin-top: 10px;">
+                <button id="ft_cp_close" class="menu_button">ОК</button>
+            </div>
+        </div>
     </div>
 </div>
 
-<!-- Шаблон карточки персонажа (скрыт, используется для копирования в JS) -->
+<!-- Шаблон карточки персонажа -->
 <template id="ft_card_template">
     <div class="ft-card" data-id="">
         <div class="ft-card-header">
-            <button class="ft-delete-btn" title="Удалить">✖</button>
+            <button class="ft-link-btn" title="Настроить связи">🔗</button>
+            <button class="ft-delete-btn" title="Удалить карточку">✖</button>
         </div>
-        <div class="ft-card-image-container">
+        <div class="ft-card-image-container" title="Кликните, чтобы изменить картинку">
             <img class="ft-card-image" src="img/ai4.png" alt="Icon">
         </div>
         <div class="ft-card-info">
-            <input type="text" class="ft-input-name" placeholder="ФИО">
+            <input type="text" class="ft-input-name" placeholder="Имя">
             <input type="number" class="ft-input-age" placeholder="Возраст">
             <select class="ft-input-status">
                 <option value="alive">Жив</option>
                 <option value="dead">Мертв</option>
             </select>
         </div>
-        <!-- Точки для связывания линий -->
-        <div class="ft-port ft-port-top"></div>
-        <div class="ft-port ft-port-bottom"></div>
     </div>
 </template>
