@@ -1,0 +1,38 @@
+<div id="family_tree_popup" class="wide_dialog_popup mfp-hide">
+    <div class="family-tree-header">
+        <h2>Семейное Древо</h2>
+        <div class="family-tree-controls">
+            <button id="ft_add_character" class="menu_button">Добавить персонажа</button>
+            <button id="ft_close" class="menu_button">Закрыть</button>
+        </div>
+    </div>
+    
+    <div id="family_tree_workspace" class="family-tree-workspace">
+        <!-- SVG слой для линий связи -->
+        <svg id="ft_lines_layer" class="ft-svg-layer"></svg>
+        <!-- Карточки будут добавляться сюда скриптом -->
+    </div>
+</div>
+
+<!-- Шаблон карточки персонажа (скрыт, используется для копирования в JS) -->
+<template id="ft_card_template">
+    <div class="ft-card" data-id="">
+        <div class="ft-card-header">
+            <button class="ft-delete-btn" title="Удалить">✖</button>
+        </div>
+        <div class="ft-card-image-container">
+            <img class="ft-card-image" src="img/ai4.png" alt="Icon">
+        </div>
+        <div class="ft-card-info">
+            <input type="text" class="ft-input-name" placeholder="ФИО">
+            <input type="number" class="ft-input-age" placeholder="Возраст">
+            <select class="ft-input-status">
+                <option value="alive">Жив</option>
+                <option value="dead">Мертв</option>
+            </select>
+        </div>
+        <!-- Точки для связывания линий -->
+        <div class="ft-port ft-port-top"></div>
+        <div class="ft-port ft-port-bottom"></div>
+    </div>
+</template>

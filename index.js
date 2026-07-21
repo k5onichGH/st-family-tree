@@ -1,139 +1,225 @@
-import { extension_settings, getContext } from "../../../extensions.js";
-import { saveSettingsDebounced } from "../../../extension-settings.js";
-import { eventSource, event_types } from "../../../../script.js";
+import { getContext, extension_settings } from "../../../extensions.js";
 
-const extensionName = "st-family-tree";
-const extensionFolderPath = `scripts/extensions/third-party/${extensionName}`;
+// Уникальный ID нашего расширения для сохранения настроек
+const EXTENSION_NAME = "family_tree";
 
-// Хранилище деревьев для разных чатов
-let familyTrees = {}; 
-let currentChatId = null;
+// Состояние древа в памяти (карточки и связи)
+let treeData = {
+    nodes: [], // { id, x, y, name, age, status, image }
+    links: []  // { sourceId, targetId } (Для расширения функционала в будущем)
+};
 
+// Загрузка HTML
 async function loadHtml() {
-    const response = await fetch(`${extensionFolderPath}/template.html`);
-    const html = await response.text();
-    $("body").append(html);
-}
-
-async function loadCss() {
-    $("head").append(`<link rel="stylesheet" href="${extensionFolderPath}/style.css">`);
-}
-
-// Отрисовка конкретного персонажа
-function renderNode(character) {
-    const template = document.getElementById("ft-node-template").content.cloneNode(true);
-    const nodeEl = template.querySelector(".ft-node");
-    
-    nodeEl.id = `node-${character.id}`;
-    nodeEl.style.left = character.x + "px";
-    nodeEl.style.top = character.y + "px";
-    
-    nodeEl.querySelector(".ft-avatar").src = character.iconUrl || "img/fluffy.png"; // дефолтная аватарка ST
-    nodeEl.querySelector(".ft-name").textContent = character.name;
-    nodeEl.querySelector(".ft-age span").textContent = character.age;
-    nodeEl.querySelector(".ft-status span").textContent = character.isAlive ? "Жив" : "Мертв";
-    
-    document.getElementById("ft-nodes-layer").appendChild(nodeEl);
-}
-
-// Отрисовка линии между двумя ID
-function renderLine(sourceId, targetId) {
-    const sourceEl = document.getElementById(`node-${sourceId}`);
-    const targetEl = document.getElementById(`node-${targetId}`);
-    if (!sourceEl || !targetEl) return;
-
-    // Вычисляем центры карточек
-    const x1 = sourceEl.offsetLeft + sourceEl.offsetWidth / 2;
-    const y1 = sourceEl.offsetTop + sourceEl.offsetHeight / 2;
-    const x2 = targetEl.offsetLeft + targetEl.offsetWidth / 2;
-    const y2 = targetEl.offsetTop + targetEl.offsetHeight / 2;
-
-    const line = document.createElementNS('http://www.w3.org/2000/svg','line');
-    line.setAttribute('x1', x1);
-    line.setAttribute('y1', y1);
-    line.setAttribute('x2', x2);
-    line.setAttribute('y2', y2);
-    line.setAttribute('stroke', '#888');
-    line.setAttribute('stroke-width', '2');
-
-    document.getElementById("ft-lines-layer").appendChild(line);
-}
-
-// Обновление рабочей области
-function refreshWorkspace() {
-    document.getElementById("ft-nodes-layer").innerHTML = "";
-    document.getElementById("ft-lines-layer").innerHTML = "";
-
-    if (!currentChatId || !familyTrees[currentChatId]) return;
-
-    const tree = familyTrees[currentChatId];
-    
-    // Сначала рисуем ноды
-    tree.characters.forEach(renderNode);
-    // Затем рисуем связи
-    tree.connections.forEach(conn => renderLine(conn.from, conn.to));
-}
-
-// Добавление нового персонажа
-function addCharacter() {
-    if (!currentChatId) return alert("Сначала откройте чат!");
-    
-    // В реальном расширении здесь лучше сделать красивое модальное окно ST (Popup)
-    const name = prompt("Имя персонажа:");
-    if (!name) return;
-    const age = prompt("Возраст:");
-    const isAlive = confirm("Персонаж жив? (ОК - да, Отмена - нет)");
-    const iconUrl = prompt("URL иконки (оставьте пустым для стандарта):");
-
-    if (!familyTrees[currentChatId]) {
-        familyTrees[currentChatId] = { characters: [], connections: [] };
+    const response = await fetch('/scripts/extensions/family-tree/ui.html');
+    if (response.ok) {
+        const html = await response.text();
+        $('body').append(html);
     }
-
-    const newChar = {
-        id: Date.now().toString(), // уникальный ID
-        name, age, isAlive, iconUrl,
-        x: 100, y: 100 // Позиция по умолчанию
-    };
-
-    familyTrees[currentChatId].characters.push(newChar);
-    
-    // Сохраняем в настройки ST
-    extension_settings[extensionName] = familyTrees;
-    saveSettingsDebounced();
-    
-    refreshWorkspace();
 }
 
-// Инициализация при запуске ST
-jQuery(async () => {
+// Инициализация расширения
+async function init() {
     await loadHtml();
-    await loadCss();
 
-    // Загружаем сохраненные данные
-    if (extension_settings[extensionName]) {
-        familyTrees = extension_settings[extensionName];
-    }
+    // 1. Добавляем иконку дерева в верхнее меню SillyTavern
+    const treeIconHtml = `<div id="ft_top_menu_btn" class="menu_button fas fa-tree" title="Семейное древо"></div>`;
+    $('#rm_button_group_chats').append(treeIconHtml);
 
-    // Слушаем смену чата, чтобы переключать древо
-    eventSource.on(event_types.CHAT_CHANGED, () => {
-        const context = getContext();
-        currentChatId = context.chatId;
-        refreshWorkspace();
+    // 2. Слушатели событий окна
+    $('#ft_top_menu_btn').on('click', openFamilyTree);
+    $('#ft_close').on('click', () => $.magnificPopup.close());
+    $('#ft_add_character').on('click', addNewCharacter);
+
+    // 3. Привязка к активному чату
+    // SillyTavern вызывает событие, когда чат меняется. Загружаем данные для нового чата.
+    const context = getContext();
+    context.eventSource.on(context.eventTypes.CHAT_CHANGED, loadTreeDataForCurrentChat);
+}
+
+// Открытие окна
+function openFamilyTree() {
+    $.magnificPopup.open({
+        items: {
+            src: '#family_tree_popup',
+            type: 'inline'
+        },
+        callbacks: {
+            open: function() {
+                renderTree();
+            }
+        }
     });
+}
 
-    // Добавляем кнопку в верхнее меню расширений ST
-    const buttonHtml = `
-        <div id="ft-open-btn" class="extensionsMenuExtensionButton">
-            <i class="fa-solid fa-network-wired"></i> Семейное древо
-        </div>`;
-    $("#extensionsMenu").append(buttonHtml);
+// Генерация уникального ID
+function generateId() {
+    return 'node_' + Math.random().toString(36).substr(2, 9);
+}
 
-    // Обработчики событий кнопок
-    $("#ft-open-btn").on("click", () => {
-        $("#ft-modal").css("display", "flex");
-        refreshWorkspace(); // Отрисовываем при открытии
-    });
+// Добавление нового персонажа (кнопка)
+function addNewCharacter() {
+    const newNode = {
+        id: generateId(),
+        x: 50, // Координаты появления
+        y: 50,
+        name: "",
+        age: "",
+        status: "alive",
+        image: "img/ai4.png" // Дефолтная картинка SillyTavern
+    };
+    treeData.nodes.push(newNode);
+    saveTreeData();
+    renderTree();
+}
+
+// Отрисовка всех элементов на холсте
+function renderTree() {
+    const workspace = $('#family_tree_workspace');
+    // Очищаем старые карточки (оставляем только SVG)
+    workspace.find('.ft-card').remove();
     
-    $("#ft-close-btn").on("click", () => $("#ft-modal").css("display", "none"));
-    $("#ft-add-char-btn").on("click", addCharacter);
+    const template = document.getElementById('ft_card_template').content;
+
+    treeData.nodes.forEach(nodeData => {
+        const clone = document.importNode(template, true);
+        const card = $(clone.querySelector('.ft-card'));
+        
+        card.attr('data-id', nodeData.id);
+        card.css({ left: nodeData.x + 'px', top: nodeData.y + 'px' });
+        
+        card.find('.ft-input-name').val(nodeData.name);
+        card.find('.ft-input-age').val(nodeData.age);
+        card.find('.ft-input-status').val(nodeData.status);
+        
+        // Слушатели для сохранения данных при редактировании полей
+        card.find('input, select').on('change', function() {
+            nodeData.name = card.find('.ft-input-name').val();
+            nodeData.age = card.find('.ft-input-age').val();
+            nodeData.status = card.find('.ft-input-status').val();
+            saveTreeData();
+        });
+
+        // Удаление карточки
+        card.find('.ft-delete-btn').on('click', function() {
+            treeData.nodes = treeData.nodes.filter(n => n.id !== nodeData.id);
+            saveTreeData();
+            renderTree();
+        });
+
+        setupDragAndDrop(card[0], nodeData);
+        workspace.append(card);
+    });
+
+    drawLines();
+}
+
+// Логика Drag and Drop (перетаскивания)
+function setupDragAndDrop(element, nodeData) {
+    let isDragging = false;
+    let startX, startY, initialLeft, initialTop;
+
+    $(element).on('mousedown', function(e) {
+        // Игнорируем клики по инпутам, чтобы можно было вводить текст
+        if ($(e.target).is('input, select, button')) return;
+        
+        isDragging = true;
+        startX = e.clientX;
+        startY = e.clientY;
+        initialLeft = parseInt($(element).css('left'), 10);
+        initialTop = parseInt($(element).css('top'), 10);
+        
+        $(element).css('z-index', 1000); // Помещаем поверх остальных
+    });
+
+    $(document).on('mousemove', function(e) {
+        if (!isDragging) return;
+        
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+        
+        nodeData.x = initialLeft + dx;
+        nodeData.y = initialTop + dy;
+        
+        $(element).css({
+            left: nodeData.x + 'px',
+            top: nodeData.y + 'px'
+        });
+        
+        drawLines(); // Динамически обновляем линии при перетаскивании
+    });
+
+    $(document).on('mouseup', function() {
+        if (isDragging) {
+            isDragging = false;
+            $(element).css('z-index', 1);
+            saveTreeData(); // Сохраняем новую позицию
+        }
+    });
+}
+
+// Отрисовка связей (линий)
+function drawLines() {
+    const svg = document.getElementById('ft_lines_layer');
+    svg.innerHTML = ''; // Очищаем старые линии
+
+    // Пример: рисуем линию между каждыми последовательно добавленными карточками (как заглушка).
+    // В полноценном расширении здесь будет цикл по массиву treeData.links
+    for (let i = 0; i < treeData.nodes.length - 1; i++) {
+        const n1 = treeData.nodes[i];
+        const n2 = treeData.nodes[i+1];
+        
+        // Рисуем от центра одной карточки до центра другой
+        // (160 - ширина карточки, ~200 - примерная высота)
+        const x1 = n1.x + 80; 
+        const y1 = n1.y + 100;
+        const x2 = n2.x + 80;
+        const y2 = n2.y + 100;
+
+        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line.setAttribute('x1', x1);
+        line.setAttribute('y1', y1);
+        line.setAttribute('x2', x2);
+        line.setAttribute('y2', y2);
+        line.setAttribute('class', 'ft-connection-line');
+        
+        svg.appendChild(line);
+    }
+}
+
+// Сохранение и загрузка данных
+function getChatId() {
+    const context = getContext();
+    return context.chatId || "default"; 
+}
+
+function saveTreeData() {
+    const chatId = getChatId();
+    if (!extension_settings[EXTENSION_NAME]) {
+        extension_settings[EXTENSION_NAME] = {};
+    }
+    extension_settings[EXTENSION_NAME][chatId] = treeData;
+    getContext().saveSettings(); // API SillyTavern для сохранения extension_settings на диск
+}
+
+function loadTreeDataForCurrentChat() {
+    const chatId = getChatId();
+    if (extension_settings[EXTENSION_NAME] && extension_settings[EXTENSION_NAME][chatId]) {
+        treeData = extension_settings[EXTENSION_NAME][chatId];
+    } else {
+        treeData = { nodes: [], links: [] };
+    }
+    // Если окно открыто в момент смены чата — перерисовываем
+    if ($.magnificPopup.instance.isOpen && $('#family_tree_popup').is(':visible')) {
+        renderTree();
+    }
+}
+
+// Запускаем при загрузке расширений
+jQuery(async () => {
+    try {
+        await init();
+    } catch (error) {
+        console.error("[Family Tree] Ошибка инициализации:", error);
+    }
 });
