@@ -1,15 +1,9 @@
 import { getContext, extension_settings } from "../../../extensions.js";
 
-// Уникальный ID нашего расширения для сохранения настроек
 const EXTENSION_NAME = "family_tree";
+let treeData = { nodes: [], links: [] };
+let activeNodeIdForLinks = null; // ID персонажа, чьи связи мы сейчас редактируем
 
-// Состояние древа в памяти (карточки и связи)
-let treeData = {
-    nodes: [], // { id, x, y, name, age, status, image }
-    links: []  // { sourceId, targetId } (Для расширения функционала в будущем)
-};
-
-// Загрузка HTML
 async function loadHtml() {
     const response = await fetch('/scripts/extensions/family-tree/ui.html');
     if (response.ok) {
@@ -18,65 +12,56 @@ async function loadHtml() {
     }
 }
 
-// Инициализация расширения
 async function init() {
     await loadHtml();
-
-    // 1. Добавляем иконку дерева в верхнее меню SillyTavern
     const treeIconHtml = `<div id="ft_top_menu_btn" class="menu_button fas fa-tree" title="Семейное древо"></div>`;
     $('#rm_button_group_chats').append(treeIconHtml);
 
-    // 2. Слушатели событий окна
     $('#ft_top_menu_btn').on('click', openFamilyTree);
     $('#ft_close').on('click', () => $.magnificPopup.close());
     $('#ft_add_character').on('click', addNewCharacter);
+    
+    // Кнопки внутри панели управления связями
+    $('#ft_cp_close').on('click', () => $('#ft_connection_panel').hide());
+    $('#ft_cp_add').on('click', createLink);
 
-    // 3. Привязка к активному чату
-    // SillyTavern вызывает событие, когда чат меняется. Загружаем данные для нового чата.
     const context = getContext();
     context.eventSource.on(context.eventTypes.CHAT_CHANGED, loadTreeDataForCurrentChat);
 }
 
-// Открытие окна
 function openFamilyTree() {
     $.magnificPopup.open({
-        items: {
-            src: '#family_tree_popup',
-            type: 'inline'
-        },
+        items: { src: '#family_tree_popup', type: 'inline' },
         callbacks: {
             open: function() {
+                $('#ft_connection_panel').hide();
                 renderTree();
             }
         }
     });
 }
 
-// Генерация уникального ID
 function generateId() {
-    return 'node_' + Math.random().toString(36).substr(2, 9);
+    return 'id_' + Math.random().toString(36).substr(2, 9);
 }
 
-// Добавление нового персонажа (кнопка)
 function addNewCharacter() {
     const newNode = {
         id: generateId(),
-        x: 50, // Координаты появления
-        y: 50,
-        name: "",
+        x: Math.floor(Math.random() * 100) + 50, // Небольшой разброс координат
+        y: Math.floor(Math.random() * 100) + 50,
+        name: "Неизвестный",
         age: "",
         status: "alive",
-        image: "img/ai4.png" // Дефолтная картинка SillyTavern
+        image: "img/ai4.png"
     };
     treeData.nodes.push(newNode);
     saveTreeData();
     renderTree();
 }
 
-// Отрисовка всех элементов на холсте
 function renderTree() {
     const workspace = $('#family_tree_workspace');
-    // Очищаем старые карточки (оставляем только SVG)
     workspace.find('.ft-card').remove();
     
     const template = document.getElementById('ft_card_template').content;
@@ -91,20 +76,48 @@ function renderTree() {
         card.find('.ft-input-name').val(nodeData.name);
         card.find('.ft-input-age').val(nodeData.age);
         card.find('.ft-input-status').val(nodeData.status);
+        card.find('.ft-card-image').attr('src', nodeData.image);
         
-        // Слушатели для сохранения данных при редактировании полей
+        // Автосохранение при вводе текста
         card.find('input, select').on('change', function() {
-            nodeData.name = card.find('.ft-input-name').val();
+            nodeData.name = card.find('.ft-input-name').val() || "Неизвестный";
             nodeData.age = card.find('.ft-input-age').val();
             nodeData.status = card.find('.ft-input-status').val();
             saveTreeData();
+            
+            // Если открыта панель связей, обновляем имя там
+            if (activeNodeIdForLinks === nodeData.id) {
+                $('#ft_cp_name').text(nodeData.name);
+            }
+        });
+
+        // Смена картинки
+        card.find('.ft-card-image-container').on('click', function() {
+            const newUrl = prompt("Введите URL изображения (ссылку из интернета или локальную, например img/ai5.png):", nodeData.image);
+            if (newUrl) {
+                nodeData.image = newUrl;
+                card.find('.ft-card-image').attr('src', newUrl);
+                saveTreeData();
+            }
+        });
+
+        // Открытие панели связей
+        card.find('.ft-link-btn').on('click', function() {
+            openConnectionPanel(nodeData);
         });
 
         // Удаление карточки
         card.find('.ft-delete-btn').on('click', function() {
-            treeData.nodes = treeData.nodes.filter(n => n.id !== nodeData.id);
-            saveTreeData();
-            renderTree();
+            if(confirm("Точно удалить персонажа? Все его связи тоже удалятся.")) {
+                // Удаляем узел
+                treeData.nodes = treeData.nodes.filter(n => n.id !== nodeData.id);
+                // Удаляем все связи, где этот узел был источником или целью
+                treeData.links = treeData.links.filter(l => l.sourceId !== nodeData.id && l.targetId !== nodeData.id);
+                
+                $('#ft_connection_panel').hide();
+                saveTreeData();
+                renderTree();
+            }
         });
 
         setupDragAndDrop(card[0], nodeData);
@@ -114,63 +127,130 @@ function renderTree() {
     drawLines();
 }
 
-// Логика Drag and Drop (перетаскивания)
 function setupDragAndDrop(element, nodeData) {
     let isDragging = false;
     let startX, startY, initialLeft, initialTop;
 
     $(element).on('mousedown', function(e) {
-        // Игнорируем клики по инпутам, чтобы можно было вводить текст
-        if ($(e.target).is('input, select, button')) return;
+        if ($(e.target).closest('input, select, button, .ft-card-image-container').length) return;
         
         isDragging = true;
         startX = e.clientX;
         startY = e.clientY;
-        initialLeft = parseInt($(element).css('left'), 10);
-        initialTop = parseInt($(element).css('top'), 10);
-        
-        $(element).css('z-index', 1000); // Помещаем поверх остальных
+        initialLeft = parseInt($(element).css('left'), 10) || 0;
+        initialTop = parseInt($(element).css('top'), 10) || 0;
+        $(element).css('z-index', 1000);
     });
 
     $(document).on('mousemove', function(e) {
         if (!isDragging) return;
         
-        const dx = e.clientX - startX;
-        const dy = e.clientY - startY;
+        nodeData.x = initialLeft + (e.clientX - startX);
+        nodeData.y = initialTop + (e.clientY - startY);
         
-        nodeData.x = initialLeft + dx;
-        nodeData.y = initialTop + dy;
-        
-        $(element).css({
-            left: nodeData.x + 'px',
-            top: nodeData.y + 'px'
-        });
-        
-        drawLines(); // Динамически обновляем линии при перетаскивании
+        $(element).css({ left: nodeData.x + 'px', top: nodeData.y + 'px' });
+        drawLines(); 
     });
 
     $(document).on('mouseup', function() {
         if (isDragging) {
             isDragging = false;
             $(element).css('z-index', 1);
-            saveTreeData(); // Сохраняем новую позицию
+            saveTreeData();
         }
     });
 }
 
-// Отрисовка связей (линий)
+// ---------------- УПРАВЛЕНИЕ СВЯЗЯМИ ----------------
+
+function openConnectionPanel(nodeData) {
+    activeNodeIdForLinks = nodeData.id;
+    $('#ft_cp_name').text(nodeData.name || "Неизвестный");
+    
+    // Заполняем выпадающий список другими персонажами
+    const select = $('#ft_cp_target').empty();
+    treeData.nodes.forEach(n => {
+        if (n.id !== nodeData.id) {
+            select.append(`<option value="${n.id}">${n.name || 'Без имени'}</option>`);
+        }
+    });
+
+    refreshConnectionList();
+    $('#ft_connection_panel').show();
+}
+
+function createLink() {
+    const targetId = $('#ft_cp_target').val();
+    const type = $('#ft_cp_type').val(); // 'solid' или 'dashed'
+    
+    if (!targetId || !activeNodeIdForLinks) return;
+
+    // Проверяем, нет ли уже такой связи (в любом направлении)
+    const exists = treeData.links.find(l => 
+        (l.sourceId === activeNodeIdForLinks && l.targetId === targetId) ||
+        (l.sourceId === targetId && l.targetId === activeNodeIdForLinks)
+    );
+
+    if (exists) {
+        alert("Связь между этими персонажами уже существует!");
+        return;
+    }
+
+    treeData.links.push({
+        id: generateId(),
+        sourceId: activeNodeIdForLinks,
+        targetId: targetId,
+        type: type
+    });
+
+    saveTreeData();
+    drawLines();
+    refreshConnectionList();
+}
+
+function refreshConnectionList() {
+    const list = $('#ft_cp_list').empty();
+    
+    // Ищем все связи, связанные с активным узлом
+    const activeLinks = treeData.links.filter(l => l.sourceId === activeNodeIdForLinks || l.targetId === activeNodeIdForLinks);
+    
+    activeLinks.forEach(link => {
+        // Определяем, кто "второй" персонаж в этой связи
+        const otherNodeId = link.sourceId === activeNodeIdForLinks ? link.targetId : link.sourceId;
+        const otherNode = treeData.nodes.find(n => n.id === otherNodeId);
+        if (!otherNode) return;
+
+        const typeName = link.type === 'solid' ? 'Родство' : 'Брак/Иное';
+        
+        const li = $(`
+            <li class="ft-conn-item">
+                <span>${otherNode.name || 'Без имени'} (${typeName})</span>
+                <span class="ft-conn-delete" title="Удалить связь">✖</span>
+            </li>
+        `);
+        
+        li.find('.ft-conn-delete').on('click', () => {
+            treeData.links = treeData.links.filter(l => l.id !== link.id);
+            saveTreeData();
+            drawLines();
+            refreshConnectionList();
+        });
+        
+        list.append(li);
+    });
+}
+
 function drawLines() {
     const svg = document.getElementById('ft_lines_layer');
-    svg.innerHTML = ''; // Очищаем старые линии
+    svg.innerHTML = ''; 
 
-    // Пример: рисуем линию между каждыми последовательно добавленными карточками (как заглушка).
-    // В полноценном расширении здесь будет цикл по массиву treeData.links
-    for (let i = 0; i < treeData.nodes.length - 1; i++) {
-        const n1 = treeData.nodes[i];
-        const n2 = treeData.nodes[i+1];
+    treeData.links.forEach(link => {
+        const n1 = treeData.nodes.find(n => n.id === link.sourceId);
+        const n2 = treeData.nodes.find(n => n.id === link.targetId);
         
-        // Рисуем от центра одной карточки до центра другой
-        // (160 - ширина карточки, ~200 - примерная высота)
+        if (!n1 || !n2) return; // Защита на случай поврежденных данных
+
+        // Вычисляем центр карточек (примерная ширина 160, высота 200)
         const x1 = n1.x + 80; 
         const y1 = n1.y + 100;
         const x2 = n2.x + 80;
@@ -181,41 +261,40 @@ function drawLines() {
         line.setAttribute('y1', y1);
         line.setAttribute('x2', x2);
         line.setAttribute('y2', y2);
-        line.setAttribute('class', 'ft-connection-line');
+        line.setAttribute('class', link.type === 'dashed' ? 'ft-line-dashed' : 'ft-line-solid');
         
         svg.appendChild(line);
-    }
+    });
 }
 
-// Сохранение и загрузка данных
+// ---------------- СОХРАНЕНИЕ / ЗАГРУЗКА ----------------
+
 function getChatId() {
-    const context = getContext();
-    return context.chatId || "default"; 
+    return getContext().chatId || "default"; 
 }
 
 function saveTreeData() {
     const chatId = getChatId();
-    if (!extension_settings[EXTENSION_NAME]) {
-        extension_settings[EXTENSION_NAME] = {};
-    }
+    if (!extension_settings[EXTENSION_NAME]) extension_settings[EXTENSION_NAME] = {};
     extension_settings[EXTENSION_NAME][chatId] = treeData;
-    getContext().saveSettings(); // API SillyTavern для сохранения extension_settings на диск
+    getContext().saveSettings();
 }
 
 function loadTreeDataForCurrentChat() {
     const chatId = getChatId();
     if (extension_settings[EXTENSION_NAME] && extension_settings[EXTENSION_NAME][chatId]) {
         treeData = extension_settings[EXTENSION_NAME][chatId];
+        // Убеждаемся, что links существует для старых сохранений
+        if (!treeData.links) treeData.links = [];
     } else {
         treeData = { nodes: [], links: [] };
     }
-    // Если окно открыто в момент смены чата — перерисовываем
     if ($.magnificPopup.instance.isOpen && $('#family_tree_popup').is(':visible')) {
+        $('#ft_connection_panel').hide();
         renderTree();
     }
 }
 
-// Запускаем при загрузке расширений
 jQuery(async () => {
     try {
         await init();
