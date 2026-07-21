@@ -94,3 +94,93 @@
     stroke: var(--SmartThemeBodyText, #fff);
     stroke-width: 2;
 }
+/* Новая кнопка связей в шапке карточки */
+.ft-link-btn {
+    background: transparent;
+    border: none;
+    color: #4caf50;
+    cursor: pointer;
+    font-size: 14px;
+    margin-right: auto; /* Отодвинет крестик вправо */
+}
+
+/* Контейнер шапки теперь flex, чтобы раздвинуть кнопки */
+.ft-card-header {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 5px;
+}
+
+.ft-card-image-container {
+    cursor: pointer; /* Показываем, что на картинку можно кликать */
+    transition: opacity 0.2s;
+}
+.ft-card-image-container:hover {
+    opacity: 0.8;
+}
+/* Панель управления связями */
+.ft-panel {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 280px;
+    background: var(--SmartThemeBlurTintColor, #222);
+    border: 1px solid var(--SmartThemeBorderColor, #555);
+    border-radius: 8px;
+    padding: 15px;
+    z-index: 2000;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.5);
+    color: var(--SmartThemeBodyText, #fff);
+}
+
+.ft-cp-form {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 10px 0;
+}
+
+.ft-select {
+    background: var(--SmartThemeBodyColor, #111);
+    color: var(--SmartThemeBodyText, #fff);
+    border: 1px solid var(--SmartThemeBorderColor, #444);
+    padding: 5px;
+    border-radius: 4px;
+}
+
+.ft-conn-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    max-height: 150px;
+    overflow-y: auto;
+}
+
+.ft-conn-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: rgba(0,0,0,0.2);
+    padding: 5px;
+    margin-bottom: 5px;
+    border-radius: 4px;
+    font-size: 12px;
+}
+
+.ft-conn-delete {
+    color: #ff4444;
+    cursor: pointer;
+    font-weight: bold;
+}
+
+/* Типы линий связи */
+.ft-line-solid {
+    stroke: #ffffff;
+    stroke-width: 3;
+}
+
+.ft-line-dashed {
+    stroke: #ff9800;
+    stroke-width: 3;
+    stroke-dasharray: 8, 5; /* Делает линию пунктирной */
+}
